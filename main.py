@@ -5,7 +5,9 @@ Supporte : Ollama (local), Groq (cloud free), Anthropic (cloud paid)
 """
 
 from http.server import HTTPServer, BaseHTTPRequestHandler
-import json, datetime, sqlite3, os, re, threading, urllib.request, time
+import json, datetime, sqlite3, os, re, threading, urllib.request, time, smtplib
+from email.mime.text import MIMEText
+from email.mime.multipart import MIMEMultipart
 
 DB_PATH = os.environ.get('KODO_DB', 'kodo_leads.db')
 LLM_BACKEND = os.environ.get('LLM_BACKEND', 'ollama')  # ollama | groq | anthropic
@@ -14,6 +16,10 @@ LLM_MODEL = os.environ.get('LLM_MODEL', '')
 GROQ_API_KEY = os.environ.get('GROQ_API_KEY', '')
 ANTHROPIC_API_KEY = os.environ.get('ANTHROPIC_API_KEY', '')
 OLLAMA_URL = os.environ.get('OLLAMA_URL', 'http://localhost:11434')
+SMTP_EMAIL = os.environ.get('SMTP_EMAIL', '')
+SMTP_PASSWORD = os.environ.get('SMTP_PASSWORD', '')
+SMTP_HOST = os.environ.get('SMTP_HOST', 'smtp.gmail.com')
+SMTP_PORT = int(os.environ.get('SMTP_PORT', '587'))
 
 def init_db():
     conn = sqlite3.connect(DB_PATH)
@@ -172,6 +178,47 @@ def generate_response(lead, qualification, agency_name='Votre Agence'):
     except Exception as e:
         return f"[Erreur génération: {e}]", 0
 
+def send_email(to_email, subject, body, from_name='AutoPilot IA'):
+    """Envoie un email via SMTP Gmail"""
+    if not SMTP_EMAIL or not SMTP_PASSWORD:
+        return False, "SMTP not configured"
+    try:
+        msg = MIMEMultipart()
+        msg['From'] = f"{from_name} <{SMTP_EMAIL}>"
+        msg['To'] = to_email
+        msg['Subject'] = subject
+        msg.attach(MIMEText(body, 'plain', 'utf-8'))
+        with smtplib.SMTP(SMTP_HOST, SMTP_PORT) as server:
+            server.starttls()
+            server.login(SMTP_EMAIL, SMTP_PASSWORD)
+            server.send_message(msg)
+        return True, "sent"
+    except Exception as e:
+        return False, str(e)
+
+def notify_agency(agency_email, lead, score, ai_response):
+    """Notifie l'agence qu'un nouveau lead est arrivé"""
+    subject = f"{'🔥' if score >= 7 else '📩'} Nouveau lead — Score {score}/10 — {lead.get('nom', 'Anonyme')}"
+    body = f"""Nouveau lead qualifié par AutoPilot IA
+
+━━━ LEAD ━━━
+Nom: {lead.get('nom', 'N/A')}
+Email: {lead.get('email', 'N/A')}
+Téléphone: {lead.get('telephone', 'N/A')}
+Source: {lead.get('source', 'N/A')}
+Score: {score}/10 {'🔥 CHAUD' if score >= 7 else ''}
+
+━━━ MESSAGE ORIGINAL ━━━
+{lead.get('message', '')}
+
+━━━ RÉPONSE IA GÉNÉRÉE ━━━
+{ai_response}
+
+---
+AutoPilot IA — Qualification automatique de leads
+"""
+    return send_email(agency_email, subject, body)
+
 class Handler(BaseHTTPRequestHandler):
     def log_message(self, fmt, *args): pass
     
@@ -240,9 +287,34 @@ class Handler(BaseHTTPRequestHandler):
             conn.commit()
             conn.close()
             
+            # 4. Envoi email au prospect (si email fourni et SMTP configuré)
+            email_sent = False
+            if lead.get('email') and SMTP_EMAIL:
+                ok, err = send_email(
+                    lead['email'],
+                    f"Re: Votre demande immobilière",
+                    ai_response,
+                    from_name=agency_name
+                )
+                email_sent = ok
+                if ok:
+                    conn2 = sqlite3.connect(DB_PATH)
+                    conn2.execute('UPDATE leads SET email_sent=1 WHERE id=?', (lead_id,))
+                    conn2.commit()
+                    conn2.close()
+            
+            # 5. Notification à l'agence (si configuré)
+            agency_email = body.get('agency_email', '')
+            notify_sent = False
+            if agency_email and SMTP_EMAIL:
+                ok, _ = notify_agency(agency_email, lead, score, ai_response)
+                notify_sent = ok
+            
             self._json_response(200, {
                 "status": "ok",
                 "lead_id": lead_id,
+                "email_sent": email_sent,
+                "agency_notified": notify_sent,
                 "qualification": {
                     "score": score,
                     "type_bien": type_bien,
