@@ -1,0 +1,11 @@
+services:
+  - type: web
+    name: kodo-ai-backend
+    runtime: python
+    buildCommand: ""
+    startCommand: python3 main.py
+    envVars:
+      - key: PORT
+        value: 8080
+      - key: KODO_DB
+        value: /tmp/kodo_leads.db
