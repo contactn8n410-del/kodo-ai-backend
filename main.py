@@ -9,7 +9,8 @@ import json, datetime, sqlite3, os, re, threading, urllib.request, time
 
 DB_PATH = os.environ.get('KODO_DB', 'kodo_leads.db')
 LLM_BACKEND = os.environ.get('LLM_BACKEND', 'ollama')  # ollama | groq | anthropic
-LLM_MODEL = os.environ.get('LLM_MODEL', 'qwen2.5:7b')
+_DEFAULT_MODELS = {'ollama': 'qwen2.5:7b', 'groq': 'llama-3.1-8b-instant', 'anthropic': 'claude-3-haiku-20240307'}
+LLM_MODEL = os.environ.get('LLM_MODEL', '')
 GROQ_API_KEY = os.environ.get('GROQ_API_KEY', '')
 ANTHROPIC_API_KEY = os.environ.get('ANTHROPIC_API_KEY', '')
 OLLAMA_URL = os.environ.get('OLLAMA_URL', 'http://localhost:11434')
@@ -74,7 +75,7 @@ Règles :
 def call_llm(prompt, backend=None, model=None):
     """Appelle le LLM configuré. Retourne (response_text, latency_ms, model_used)"""
     backend = backend or LLM_BACKEND
-    model = model or LLM_MODEL
+    model = model or LLM_MODEL or _DEFAULT_MODELS.get(backend, 'llama-3.1-8b-instant')
     start = time.time()
     
     if backend == 'ollama':
