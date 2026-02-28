@@ -50,7 +50,7 @@ Message: {message}
 Source: {source}
 """
 
-RESPONSE_PROMPT = """Tu es l'assistant commercial de l'agence. Rédige une réponse email courte (max 5 phrases), chaleureuse et professionnelle, à ce prospect.
+RESPONSE_PROMPT = """Tu es l'assistant commercial de l'agence {agency_name}. Rédige une réponse email courte (max 5 phrases), chaleureuse et professionnelle, à ce prospect.
 
 Contexte qualification :
 - Score: {score}/10
@@ -69,7 +69,7 @@ Règles :
 - Si score >= 7 : ton enthousiaste, proposer RDV cette semaine
 - Si score 4-6 : ton professionnel, demander plus d'infos
 - Si score < 4 : ton poli, accusé de réception
-- Signer "L'équipe [NOM_AGENCE]"
+- Signer "L'équipe {agency_name}"
 """
 
 def call_llm(prompt, backend=None, model=None):
@@ -154,7 +154,7 @@ def qualify_with_ai(lead):
     except Exception as e:
         return None, str(e), 0, "error"
 
-def generate_response(lead, qualification):
+def generate_response(lead, qualification, agency_name='Votre Agence'):
     """Génère une réponse personnalisée par IA"""
     prompt = RESPONSE_PROMPT.format(
         score=qualification.get('score', 0),
@@ -163,7 +163,8 @@ def generate_response(lead, qualification):
         intention=qualification.get('intention', 'inconnu'),
         points_cles=', '.join(qualification.get('points_cles', [])),
         nom=lead.get('nom', ''),
-        message=lead.get('message', '')
+        message=lead.get('message', ''),
+        agency_name=agency_name
     )
     try:
         text, latency, model = call_llm(prompt)
@@ -220,7 +221,8 @@ class Handler(BaseHTTPRequestHandler):
                 analysis = {"error": "AI qualification failed", "raw": raw_ai[:200]}
             
             # 2. Génération réponse personnalisée
-            ai_response, resp_latency = generate_response(lead, analysis or {})
+            agency_name = body.get('agency_name', 'Votre Agence')
+            ai_response, resp_latency = generate_response(lead, analysis or {}, agency_name)
             total_latency = qual_latency + resp_latency
             
             # 3. Stockage SQLite
